@@ -1,4 +1,4 @@
-# nr_diff_flat_px4
+# Flatness-based prediction with Newton-Raphson Flow for PX4-ROS2 Deployment
 
 A ROS 2 differential-flatness based Newton-Raphson controller for quadrotors. Exploits the differential flatness property of quadrotor dynamics — where flat outputs `[x, y, z, yaw]` fully determine the state and inputs — to compute thrust and body rate commands directly without iterative Jacobian inversion.
 
