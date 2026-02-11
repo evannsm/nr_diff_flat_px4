@@ -96,7 +96,7 @@ def _thrust_cbf(tau, u_df_xyz, gamma=10):
     return v
 
 
-def nr_diff_flat_numpy(state, last_input, x_df, ref, T_lookahead, step, mass, ROT, last_yaw_ref):
+def nr_diff_flat_px4_numpy(state, last_input, x_df, ref, T_lookahead, step, mass, ROT, last_yaw_ref):
     """Differential-flatness based Newton-Raphson controller (NumPy version).
 
     Uses the 2nd-order flat state (12 elements) for position prediction and

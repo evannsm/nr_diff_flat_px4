@@ -13,10 +13,9 @@ from px4_msgs.msg import(
     VehicleCommand,
     VehicleStatus,
     VehicleOdometry,
-    RcChannels,
-    BatteryStatus
+    RcChannels
 )
-from nr_diff_flat_utils.px4_utils.core_funcs import (
+from nr_diff_flat_px4_utils.px4_utils.core_funcs import (
     engage_offboard_mode,
     arm,
     land,
@@ -35,13 +34,13 @@ from quad_trajectories import (
     TRAJ_REGISTRY,
     generate_reference_trajectory
 )
-from nr_diff_flat_utils.controller.nr_diff_flat_jax import NR_tracker_flat
-from nr_diff_flat_utils.controller.nr_diff_flat_numpy import nr_diff_flat_numpy
+from nr_diff_flat_px4_utils.controller.nr_diff_flat_px4_jax import NR_tracker_flat
+from nr_diff_flat_px4_utils.controller.nr_diff_flat_px4_numpy import nr_diff_flat_px4_numpy
 
 
-from nr_diff_flat_utils.main_utils import BANNER
-from nr_diff_flat_utils.transformations.adjust_yaw import adjust_yaw
-from nr_diff_flat_utils.px4_utils.flight_phases import FlightPhase
+from nr_diff_flat_px4_utils.main_utils import BANNER
+from nr_diff_flat_px4_utils.transformations.adjust_yaw import adjust_yaw
+from nr_diff_flat_px4_utils.px4_utils.flight_phases import FlightPhase
 
 
 import time
@@ -139,15 +138,6 @@ class OffboardControl(Node):
         self.rc_channels_subscriber = self.create_subscription(
             RcChannels, '/fmu/out/rc_channels',
             self.rc_channel_callback, qos_profile)
-
-        # Battery voltage compensation
-        self.BATTERY_VOLTAGE_COMPENSATION = True
-        self.NOMINAL_VOLTAGE = 16.8  # 4S LiPo full charge voltage
-        self.battery_voltage = self.NOMINAL_VOLTAGE  # assume full until first reading
-        self.BATTERY_LPF_ALPHA = 0.05  # low-pass filter coefficient (0 < alpha < 1)
-        self.battery_status_subscriber = self.create_subscription(
-            BatteryStatus, '/fmu/out/battery_status',
-            self.battery_status_callback, qos_profile)
 
         # ----------------------- Set up Flight Phases and Time --------------------------
         self.T0 = time.time()
@@ -429,12 +419,6 @@ class OffboardControl(Node):
         flight_mode = rc_channels.channels[self.mode_channel - 1]
         self.offboard_mode_rc_switch_on = True if flight_mode >= 0.75 else False
 
-    def battery_status_callback(self, msg):
-        """Update battery voltage with exponential moving average low-pass filter."""
-        if msg.voltage_v > 0:
-            self.battery_voltage = ((1.0 - self.BATTERY_LPF_ALPHA) * self.battery_voltage
-                                    + self.BATTERY_LPF_ALPHA * msg.voltage_v)
-
     # ========== Timer Callbacks ==========
     def get_phase(self) -> FlightPhase:
         """Determine the current flight phase based on elapsed time."""
@@ -649,11 +633,6 @@ class OffboardControl(Node):
         new_force = float(self.new_input[0])
         new_throttle = float(self.platform.get_throttle_from_force(new_force))
 
-        # Battery voltage compensation: scale throttle to account for voltage sag
-        if self.BATTERY_VOLTAGE_COMPENSATION:
-            new_throttle *= self.NOMINAL_VOLTAGE / self.battery_voltage
-            new_throttle = min(new_throttle, 1.0)
-
         new_roll_rate = float(self.new_input[1])
         new_pitch_rate = float(self.new_input[2])
         new_yaw_rate = float(self.new_input[3])
@@ -692,7 +671,7 @@ class OffboardControl(Node):
             self.cbf_term = np.zeros(4)
 
         elif self.ctrl_type == 'numpy':
-            u, new_x_df, vnorm = nr_diff_flat_numpy(
+            u, new_x_df, vnorm = nr_diff_flat_px4_numpy(
                 np.array(self.nr_state).reshape(9, 1),
                 np.array(self.last_input).reshape(4, 1),
                 self.x_df,

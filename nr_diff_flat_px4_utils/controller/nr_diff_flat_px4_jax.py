@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-from nr_diff_flat_utils.jax_utils import jit
+from nr_diff_flat_px4_utils.jax_utils import jit
 
 GRAVITY = 9.806
 ALPHA = jnp.array([[20, 30, 30, 30]]).T

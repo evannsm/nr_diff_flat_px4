@@ -33,13 +33,13 @@ def create_parser():
         """ + "==" * 60 + """
         Example usage:
         # JAX controller (default):
-        ros2 run nr_diff_flat run_node --platform sim --trajectory helix --double-speed --spin --log
+        ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory helix --double-speed --spin --log
 
         # NumPy controller:
-        ros2 run nr_diff_flat run_node --platform sim --trajectory helix --double-speed --ctrl-type numpy --log
+        ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory helix --double-speed --ctrl-type numpy --log
 
         # Auto-generated log filename:
-        ros2 run nr_diff_flat run_node --platform sim --trajectory helix --double-speed --spin --log
+        ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory helix --double-speed --spin --log
         # -> logs to: sim_nr_df_helix_2x_spin.csv
         """ + "==" * 60 + """
         """

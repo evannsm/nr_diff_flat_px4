@@ -1,4 +1,4 @@
-# nr_diff_flat
+# nr_diff_flat_px4
 
 A ROS 2 differential-flatness based Newton-Raphson controller for quadrotors. Exploits the differential flatness property of quadrotor dynamics — where flat outputs `[x, y, z, yaw]` fully determine the state and inputs — to compute thrust and body rate commands directly without iterative Jacobian inversion.
 
@@ -35,13 +35,13 @@ Quadrotors are differentially flat systems: given a trajectory in flat output sp
 source install/setup.bash
 
 # Fly a helix in simulation (JAX backend, default)
-ros2 run nr_diff_flat run_node --platform sim --trajectory helix
+ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory helix
 
 # Use NumPy backend
-ros2 run nr_diff_flat run_node --platform sim --trajectory circle_horz --ctrl-type numpy
+ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory circle_horz --ctrl-type numpy
 
 # Hardware flight with logging
-ros2 run nr_diff_flat run_node --platform hw --trajectory fig8_horz --log
+ros2 run nr_diff_flat_px4 run_node --platform hw --trajectory fig8_horz --log
 ```
 
 ### CLI Options
@@ -70,14 +70,14 @@ ros2 run nr_diff_flat run_node --platform hw --trajectory fig8_horz --log
 ## Package Structure
 
 ```
-nr_diff_flat/
-├── nr_diff_flat/
+nr_diff_flat_px4/
+├── nr_diff_flat_px4/
 │   ├── run_node.py              # CLI entry point and argument parsing
 │   └── ros2px4_node.py          # ROS 2 node (subscriptions, publishers, control loop)
-└── nr_diff_flat_utils/
+└── nr_diff_flat_px4_utils/
     ├── controller/
-    │   ├── nr_diff_flat_jax.py  # JAX implementation (default)
-    │   └── nr_diff_flat_numpy.py# NumPy reference implementation
+    │   ├── nr_diff_flat_px4_jax.py  # JAX implementation (default)
+    │   └── nr_diff_flat_px4_numpy.py# NumPy reference implementation
     ├── px4_utils/               # PX4 interface and flight phase management
     ├── transformations/         # Yaw adjustment utilities
     ├── main_utils.py            # Helper functions
@@ -88,7 +88,7 @@ nr_diff_flat/
 
 ```bash
 # Inside a ROS 2 workspace src/ directory
-git clone git@github.com:evannsm/nr_diff_flat.git
+git clone git@github.com:evannsm/nr_diff_flat_px4.git
 cd .. && colcon build --symlink-install
 ```
 

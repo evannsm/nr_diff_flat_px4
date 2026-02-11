@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-package_name = 'nr_diff_flat'
+package_name = 'nr_diff_flat_px4'
 
 setup(
     name=package_name,
@@ -20,7 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'run_node = nr_diff_flat.run_node:main',
+            'run_node = nr_diff_flat_px4.run_node:main',
         ],
     },
 )
