@@ -54,7 +54,7 @@ from pyJoules.device.rapl_device import RaplPackageDomain
 from pyJoules.energy_meter import EnergyContext
 
 
-from Logger import LogType, VectorLogType # pyright: ignore[reportMissingImports, reportAttributeAccessIssue]
+from ros2_logger import LogType, VectorLogType  # pyright: ignore[reportMissingImports, reportAttributeAccessIssue]
 
 GRAVITY: float = 9.806
 
@@ -222,6 +222,7 @@ class OffboardControl(Node):
                 self.traj_short_logtype = LogType("traj_short", 3)
                 self.traj_spin_logtype = LogType("traj_spin", 4)
                 self.lookahead_time = LogType("lookahead_time", 5)
+                self.controller_logtype = LogType("controller", 6)
 
                 self.platform_logtype.append(self.platform_type.value.upper())
                 self.trajectory_logtype.append(self.ref_type.name)
@@ -229,33 +230,34 @@ class OffboardControl(Node):
                 self.traj_short_logtype.append("Short" if self.short else "Not Short")
                 self.traj_spin_logtype.append("Spin" if self.spin else "NoSpin")
                 self.lookahead_time.append(self.T_LOOKAHEAD)
+                self.controller_logtype.append(f"nr_df_{self.ctrl_type}")
 
             # Time logs
-            self.program_time_logtype = LogType("time", 6)
-            self.trajectory_time_logtype = LogType("traj_time", 7)
-            self.reference_time_logtype = LogType("ref_time", 8)
-            self.comptime_logtype = LogType("comptime", 9)
+            self.program_time_logtype = LogType("time", 10)
+            self.trajectory_time_logtype = LogType("traj_time", 11)
+            self.reference_time_logtype = LogType("ref_time", 12)
+            self.comptime_logtype = LogType("comptime", 13)
 
 
             # State logs
-            self.x_logtype = LogType("x", 10)
-            self.y_logtype = LogType("y", 11)
-            self.z_logtype = LogType("z", 12)
-            self.yaw_logtype = LogType("yaw", 13)
+            self.x_logtype = LogType("x", 20)
+            self.y_logtype = LogType("y", 21)
+            self.z_logtype = LogType("z", 22)
+            self.yaw_logtype = LogType("yaw", 23)
 
             # Reference logs
-            self.xref_logtype = LogType("x_ref", 20)
-            self.yref_logtype = LogType("y_ref", 21)
-            self.zref_logtype = LogType("z_ref", 22)
-            self.yawref_logtype = LogType("yaw_ref", 22)
+            self.xref_logtype = LogType("x_ref", 30)
+            self.yref_logtype = LogType("y_ref", 31)
+            self.zref_logtype = LogType("z_ref", 32)
+            self.yawref_logtype = LogType("yaw_ref", 33)
 
             # Control input logs (normalized)
-            self.throttle_input_logtype = LogType("throttle_input", 26)
-            self.p_input_logtype = LogType("p_input", 27)
-            self.q_input_logtype = LogType("q_input", 28)
-            self.r_input_logtype = LogType("r_input", 29)
+            self.throttle_input_logtype = LogType("throttle_input", 40)
+            self.p_input_logtype = LogType("p_input", 41)
+            self.q_input_logtype = LogType("q_input", 42)
+            self.r_input_logtype = LogType("r_input", 43)
 
-            self.cbf_logtype = VectorLogType("cbf_term", 30, ['thrust_cbf', 'roll_cbf', 'pitch_cbf', 'yaw_cbf'])
+            self.cbf_logtype = VectorLogType("cbf_term", 50, ['thrust_cbf', 'roll_cbf', 'pitch_cbf', 'yaw_cbf'])
 
 
     def time_and_compare(self, func, *args, **kwargs):

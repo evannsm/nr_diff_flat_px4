@@ -5,12 +5,22 @@ import traceback
 import argparse
 import os
 
-from Logger import Logger  # type: ignore
+from ros2_logger import Logger  # type: ignore
 from .ros2px4_node import OffboardControl
 
 from quad_platforms import PlatformType
 from quad_trajectories import TrajectoryType
 from pyJoules.handler.csv_handler import CSVHandler
+
+
+def _logger_base_path(file_path: str, pkg_name: str) -> str:
+    """Return the base_path that Logger's algorithm needs to produce the correct log directory."""
+    path = os.path.abspath(file_path)
+    parts = path.split(os.sep)
+    for i, part in enumerate(parts[:-1]):
+        if part in ("install", "src", "build") and parts[i + 1] == pkg_name:
+            return os.sep.join(parts[:i + 2] + [pkg_name])
+    return os.path.dirname(path)
 
 def create_parser():
     """Create and configure argument parser.
@@ -214,7 +224,7 @@ def main():
     spin = args.spin
     flight_period = args.flight_period
     ctrl_type = args.ctrl_type
-    base_path = os.path.dirname(os.path.abspath(__file__))
+    base_path = _logger_base_path(__file__, "nr_diff_flat_px4")
 
     # Determine log filename
     if logging_enabled:
