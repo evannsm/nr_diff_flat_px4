@@ -31,6 +31,12 @@ ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory circle_vert --dou
 ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory fig8_horz
 ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory fig8_horz --double-speed
 
+# Figure-8 Contraction
+ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory fig8_contraction
+ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory fig8_contraction --ff
+ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory fig8_contraction --nr-profile workshop
+ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory fig8_contraction --ff --nr-profile workshop
+
 # Figure-8 Vertical
 ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory fig8_vert
 ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory fig8_vert --double-speed
@@ -63,6 +69,7 @@ ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory yaw_only --double
 ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory circle_horz --double-speed --ctrl-type numpy
 ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory helix --double-speed --spin --ctrl-type numpy
 ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory fig8_vert --double-speed --ctrl-type numpy
+ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory fig8_contraction --ff --nr-profile workshop --ctrl-type numpy
 ```
 
 ### Hardware
@@ -91,6 +98,15 @@ Add `--log` to auto-generate log filename based on configuration:
 # Auto-generated filename: sim_nr_df_jax_helix_2x_spin.csv
 ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory helix --double-speed --spin --log
 
+# Feedforward marker: sim_nr_df_jax_fig8_contraction_ff_1x.csv
+ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory fig8_contraction --ff --log
+
+# Workshop marker: sim_nr_df_jax_fig8_contraction_1x_workshop.csv
+ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory fig8_contraction --nr-profile workshop --log
+
+# Feedforward + workshop: sim_nr_df_jax_fig8_contraction_ff_1x_workshop.csv
+ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory fig8_contraction --ff --nr-profile workshop --log
+
 # NumPy variant: sim_nr_df_numpy_helix_2x_spin.csv
 ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory helix --double-speed --spin --ctrl-type numpy --log
 
@@ -114,6 +130,8 @@ ros2 run nr_diff_flat_px4 run_node --platform sim --trajectory helix --double-sp
 | `--trajectory` | Yes | `hover`, `yaw_only`, `circle_horz`, `circle_vert`, `fig8_horz`, `fig8_vert`, `helix`, `sawtooth`, `triangle` | Trajectory type |
 | `--hover-mode` | If hover | `1-8` (sim), `1-4` (hw) | Hover position |
 | `--ctrl-type` | No | `jax` (default), `numpy` | Controller variant |
+| `--nr-profile` | No | `baseline`, `workshop` | Diff-flat NR profile |
+| `--ff` | No | flag | Enable the flatness feedforward operating point |
 | `--double-speed` | No | flag | 2x trajectory speed |
 | `--short` | No | flag | Short fig8_vert variant |
 | `--spin` | No | flag | Enable yaw rotation |

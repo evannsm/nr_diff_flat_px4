@@ -67,7 +67,7 @@ class OffboardControl(Node):
     def __init__(self, platform_type: PlatformType, trajectory: TrajectoryType = TrajectoryType.HOVER, hover_mode: int|None = None,
                 double_speed: bool = True, short: bool = False, spin: bool = False,
                 pyjoules: bool = False, csv_handler: CSVHandler|None = None, logging_enabled: bool = False,
-                flight_period_: bool|None = None,
+                flight_period_: bool|None = None, feedforward: bool = False,
                 ctrl_type: str = 'jax',
                 nr_profile: str = "baseline") -> None:
 
@@ -82,6 +82,7 @@ class OffboardControl(Node):
         self.spin = spin
         self.pyjoules_on = pyjoules
         self.logging_enabled = logging_enabled
+        self.feedforward = feedforward
         self.ctrl_type = ctrl_type
         self.nr_profile = build_nr_profile(nr_profile)
         flight_period = flight_period_ if flight_period_ is not None else 30.0 if self.sim else 60.0
@@ -208,11 +209,15 @@ class OffboardControl(Node):
         # Diff-flat specific state: initialized on first odometry
         self.x_df_initialized = False
         self.x_df = np.zeros((12, 1))
+        self.x_df_ff = None
+        self.x_df_dev = None
+        self.u_df_ff = None
         self.ref_now = np.zeros(4, dtype=np.float64)
         self.cbf_term = np.zeros(4)  # placeholder for logging compatibility
 
         # ROT matrix - initialized to identity, updated by odometry
         self.ROT_matrix = np.eye(3)
+        self._ff_jit = None
 
         if self.ctrl_type == 'jax':
             self.jit_compile_controller()
@@ -308,6 +313,8 @@ class OffboardControl(Node):
             jnp.array(self._state0),
             jnp.array(self._input0),
             jnp.array(self._x_df0),
+            jnp.zeros((4, 1)),
+            jnp.array(False),
             jnp.array(self._ref0),
             jnp.zeros((4, 1)),
             jnp.array(self.T_LOOKAHEAD),
@@ -331,6 +338,8 @@ class OffboardControl(Node):
             jnp.array(self._state0),
             jnp.array(self._input0),
             jnp.array(self._x_df0),
+            jnp.zeros((4, 1)),
+            jnp.array(False),
             jnp.array(self._ref0),
             jnp.zeros((4, 1)),
             jnp.array(self.T_LOOKAHEAD),
@@ -398,6 +407,18 @@ class OffboardControl(Node):
         print(f"  Regular trajectory (JIT): {ref = }, {ref_dot = }")
         print(f"  Regular trajectory (JIT): {regular_total_time_2:.4f}s")
         print(f"  Regular speed up: {(regular_total_time_1)/(regular_total_time_2):.2f}x")
+
+        if self.feedforward:
+            print("  Compiling diff-flat feedforward operating point...")
+            self._ff_jit = self.build_diff_flat_feedforward(self.ref_type)
+            x_df_ff, u_df_ff, ff_total_time_1 = self.time_and_compare(self._ff_jit, 0.0)
+            print(f"  Feedforward (NO JIT): {x_df_ff = }, {u_df_ff = }")
+            print(f"  Feedforward (NO JIT): {ff_total_time_1:.4f}s")
+
+            x_df_ff, u_df_ff, ff_total_time_2 = self.time_and_compare(self._ff_jit, 0.0)
+            print(f"  Feedforward (JIT): {x_df_ff = }, {u_df_ff = }")
+            print(f"  Feedforward (JIT): {ff_total_time_2:.4f}s")
+            print(f"  Feedforward speed up: {(ff_total_time_1)/(ff_total_time_2):.2f}x")
 
 
     # ========== Subscriber Callbacks ==========
@@ -657,6 +678,7 @@ class OffboardControl(Node):
             self.trajectory_time = 0.0
             self.trajectory_started = True
             self.nr_error_integral = np.zeros(4, dtype=np.float64)
+            self.x_df_dev = None
 
         self.trajectory_time = time.time() - self.trajectory_T0
         self.reference_time = self.trajectory_time + self.T_LOOKAHEAD
@@ -667,6 +689,15 @@ class OffboardControl(Node):
         self.ref_dot = ref_dot.flatten()  # type: ignore
         self.ref_now = ref_now.flatten()  # type: ignore
         self.update_nr_error_integral()
+
+        if self.feedforward and self._ff_jit is not None:
+            x_df_ff, u_df_ff = self._ff_jit(self.trajectory_time)
+            self.x_df_ff = np.array(x_df_ff, dtype=np.float64)
+            self.u_df_ff = np.array(u_df_ff, dtype=np.float64)
+        else:
+            self.x_df_ff = None
+            self.u_df_ff = None
+            self.x_df_dev = None
 
 
         t0 = time.time()
@@ -708,12 +739,25 @@ class OffboardControl(Node):
     def controller(self):
         """Compute control input using the selected diff-flat controller variant."""
         yaw_dot = float(self.ref_dot[3])
+        if self.u_df_ff is not None and self.x_df_ff is not None:
+            if self.x_df_dev is None:
+                self.x_df_dev = np.array(self.x_df, dtype=np.float64) - np.array(self.x_df_ff, dtype=np.float64)
+            x_df_state = np.array(self.x_df_ff, dtype=np.float64) + np.array(self.x_df_dev, dtype=np.float64)
+            u_df_ff = np.array(self.u_df_ff, dtype=np.float64)
+            use_feedforward = True
+        else:
+            self.x_df_dev = None
+            x_df_state = np.array(self.x_df, dtype=np.float64)
+            u_df_ff = np.zeros((4, 1), dtype=np.float64)
+            use_feedforward = False
 
         if self.ctrl_type == 'jax':
             u, new_x_df, cbf_term = NR_tracker_flat(
                 jnp.array(self.nr_state).reshape(9, 1),
                 jnp.array(self.last_input).reshape(4, 1),
-                jnp.array(self.x_df),
+                jnp.array(x_df_state),
+                jnp.array(u_df_ff),
+                jnp.array(use_feedforward),
                 jnp.array(self.ref).reshape(4, 1),
                 jnp.array(self.nr_error_integral).reshape(4, 1),
                 jnp.array(self.T_LOOKAHEAD),
@@ -729,14 +773,16 @@ class OffboardControl(Node):
                 self.nr_use_thrust_cbf,
             )
             self.new_input = np.array(u).flatten()
-            self.x_df = np.array(new_x_df)
+            self.x_df = np.array(new_x_df, dtype=np.float64)
             self.cbf_term = np.array(cbf_term).flatten()
 
         elif self.ctrl_type == 'numpy':
             u, new_x_df, cbf_term = nr_diff_flat_px4_numpy(
                 np.array(self.nr_state).reshape(9, 1),
                 np.array(self.last_input).reshape(4, 1),
-                self.x_df,
+                x_df_state,
+                u_df_ff,
+                use_feedforward,
                 np.array(self.ref).reshape(4, 1),
                 np.array(self.nr_error_integral),
                 self.T_LOOKAHEAD,
@@ -752,13 +798,14 @@ class OffboardControl(Node):
                 self.nr_profile.use_thrust_cbf,
             )
             self.new_input = np.array(u).flatten()
-            self.x_df = new_x_df
+            self.x_df = np.array(new_x_df, dtype=np.float64)
             self.cbf_term = np.array(cbf_term).flatten()
 
+        if use_feedforward and self.x_df_ff is not None:
+            self.x_df_dev = np.array(self.x_df, dtype=np.float64) - np.array(self.x_df_ff, dtype=np.float64)
 
-
-    def generate_ref_trajectory(self, traj_type: TrajectoryType, t_start: float | None = None, **ctx_overrides):
-        """Generate reference trajectory."""
+    def _trajectory_context(self, **ctx_overrides) -> TrajContext:
+        """Build the shared trajectory context for reference and feedforward generation."""
         ctx_dict = {
             'sim': self.sim,
             'hover_mode': ctx_overrides.get('hover_mode', self.hover_mode),
@@ -766,7 +813,28 @@ class OffboardControl(Node):
             'double_speed': ctx_overrides.get('double_speed', self.double_speed),
             'short': ctx_overrides.get('short', self.short)
         }
-        ctx = TrajContext(**ctx_dict)
+        return TrajContext(**ctx_dict)
+
+    def build_diff_flat_feedforward(self, traj_type: TrajectoryType, **ctx_overrides):
+        """Return a JIT-compiled flat-state feedforward operating point."""
+        ctx = self._trajectory_context(**ctx_overrides)
+        traj_func = TRAJ_REGISTRY[traj_type]
+        flat_output = lambda t: traj_func(t, ctx)
+
+        def feedforward_state(t: float):
+            sigma = flat_output(t)
+            sigma_dot = jax.jacfwd(flat_output)(t)
+            sigma_ddot = jax.jacfwd(jax.jacfwd(flat_output))(t)
+            sigma_dddot = jax.jacfwd(jax.jacfwd(jax.jacfwd(flat_output)))(t)
+            x_df_ff = jnp.concatenate((sigma, sigma_dot, sigma_ddot)).reshape(12, 1)
+            u_df_ff = sigma_dddot.reshape(4, 1)
+            return x_df_ff, u_df_ff
+
+        return jax.jit(feedforward_state)
+
+    def generate_ref_trajectory(self, traj_type: TrajectoryType, t_start: float | None = None, **ctx_overrides):
+        """Generate reference trajectory."""
+        ctx = self._trajectory_context(**ctx_overrides)
         traj_func = TRAJ_REGISTRY[traj_type]
 
         return generate_reference_trajectory(

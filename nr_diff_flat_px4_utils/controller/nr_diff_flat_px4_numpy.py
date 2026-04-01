@@ -44,6 +44,8 @@ def nr_diff_flat_px4_numpy(
     state,
     last_input,
     x_df,
+    u_df_ff,
+    use_feedforward,
     ref,
     error_integral,
     T_lookahead,
@@ -77,7 +79,8 @@ def nr_diff_flat_px4_numpy(
         pred = z1 + z2 * T_lookahead + 0.5 * candidate_z3 * T_lookahead**2
         error = get_tracking_error(ref, pred) + integral_gain.reshape(4, 1) * clipped_integral
         nr_step = dgdu_inv @ error
-        raw_u_df = alpha.reshape(4, 1) * nr_step
+        nominal_u_df = u_df_ff if use_feedforward else np.zeros_like(u_df_ff)
+        raw_u_df = nominal_u_df + alpha.reshape(4, 1) * nr_step
 
         if use_thrust_cbf:
             cbf_term = _thrust_cbf(curr_thrust, raw_u_df[0:3], candidate_z3[0:3], mass)

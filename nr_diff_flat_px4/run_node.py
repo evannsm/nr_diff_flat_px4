@@ -30,6 +30,7 @@ def create_parser():
         trajectory: Trajectory name (e.g., 'circle_horz', 'fig8_vert', etc.)
         ctrl_type: 'jax' or 'numpy' controller variant
         nr_profile: 'baseline' or 'workshop' diff-flat profile
+        ff: Enable diff-flat feedforward operating point
         log: Enable data logging (auto-generates filename if --log-file not provided)
         log_file: Custom log file name (optional, overrides auto-generated name)
         pyjoules: Enable PyJoules energy monitoring
@@ -145,6 +146,12 @@ def create_parser():
         help='Set custom flight period in seconds (default: 30s sim, 60s hw)'
     )
 
+    parser.add_argument(
+        '--ff',
+        action='store_true',
+        help='Enable differential-flatness feedforward operating point'
+    )
+
 
     return parser
 
@@ -179,6 +186,9 @@ def generate_log_filename(args) -> str:
 
     # Trajectory
     parts.append(args.trajectory.value)  # e.g., 'helix', 'circle_horz'
+
+    if args.ff:
+        parts.append("ff")
 
     # Speed
     parts.append("2x" if args.double_speed else "1x")
@@ -233,6 +243,7 @@ def main():
     short = args.short
     spin = args.spin
     flight_period = args.flight_period
+    feedforward = args.ff
     ctrl_type = args.ctrl_type
     nr_profile = args.nr_profile
     base_path = _logger_base_path(__file__, "nr_diff_flat_px4")
@@ -261,6 +272,7 @@ def main():
     print(f"Speed:         {'Double (2x)' if double_speed else 'Regular (1x)'}")
     print(f"Short:         {'Enabled (fig8_vert)' if short else 'Disabled'}")
     print(f"Spin:          {'Enabled (circle_horz, helix)' if spin else 'Disabled'}")
+    print(f"Feedforward:   {'Enabled' if feedforward else 'Disabled'}")
     print(f"Flight Period: {flight_period if flight_period is not None else 60.0 if platform == PlatformType.HARDWARE else 30.0} seconds")
     print(f"Data Logging:  {'Enabled' if logging_enabled else 'Disabled'}")
 
@@ -281,6 +293,7 @@ def main():
         csv_handler=CSVHandler(log_file, base_path) if pyjoules and log_file else None,
         logging_enabled=logging_enabled,
         flight_period_=flight_period,
+        feedforward=feedforward,
         ctrl_type=ctrl_type,
         nr_profile=nr_profile,
     )

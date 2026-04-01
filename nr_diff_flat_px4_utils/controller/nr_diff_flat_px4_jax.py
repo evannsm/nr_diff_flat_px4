@@ -60,6 +60,8 @@ def NR_tracker_flat(
     STATE,
     INPUT,
     x_df,
+    u_df_ff,
+    use_feedforward,
     ref,
     error_integral,
     T_LOOKAHEAD,
@@ -91,7 +93,13 @@ def NR_tracker_flat(
         pred = z1 + z2 * T_LOOKAHEAD + 0.5 * candidate_z3 * T_LOOKAHEAD**2
         error = get_tracking_error(ref, pred) + integral_gain * clipped_integral
         nr_step = dgdu_inv @ error
-        raw_u_df = alpha * nr_step
+        nominal_u_df = lax.cond(
+            use_feedforward,
+            lambda _: u_df_ff,
+            lambda _: jnp.zeros_like(u_df_ff),
+            operand=None,
+        )
+        raw_u_df = nominal_u_df + alpha * nr_step
 
         cbf_term = lax.cond(
             use_thrust_cbf,
