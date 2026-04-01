@@ -87,8 +87,10 @@ The integrated feedforward path was validated in headless SITL on `fig8_contract
 
 - `baseline+noff`: `1.3242 m` position RMSE, `0.6693 ms` mean compute time
 - `baseline+ff`: `1.3496 m` position RMSE, `0.6683 ms` mean compute time
+- `workshop+noff`: `0.5388 m` position RMSE, `0.6787 ms` mean compute time
+- `workshop+ff`: `0.5535 m` position RMSE, `0.6743 ms` mean compute time
 
-So this slice is integration-complete and analysis-visible, but the feedforward operating point did **not** improve that baseline case on its first validation trajectory.
+So this slice is integration-complete and analysis-visible. On this first checked trajectory, the workshop profile delivered the real gain, while the feedforward operating point did **not** improve either the baseline or workshop profile.
 
 ## Dependencies
 
