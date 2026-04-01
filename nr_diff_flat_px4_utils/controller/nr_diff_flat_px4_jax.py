@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 from nr_diff_flat_px4_utils.jax_utils import jit
 
-GRAVITY = 9.806
+GRAVITY = 9.8  # Match Gazebo world
 ALPHA = jnp.array([[20, 30, 30, 30]]).T
 
 # ---- Hardcoded switch: set to True to use thrust CBF, False for simple clipping ----

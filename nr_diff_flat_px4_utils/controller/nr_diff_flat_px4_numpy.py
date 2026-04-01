@@ -1,7 +1,7 @@
 import numpy as np
 
 
-GRAVITY = 9.806
+GRAVITY = 9.8  # Match Gazebo world
 ALPHA = np.array([[20, 30, 30, 30]]).T
 
 
