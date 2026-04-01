@@ -34,7 +34,11 @@ from quad_trajectories import (
     TRAJ_REGISTRY,
     generate_reference_trajectory
 )
-from nr_diff_flat_px4_utils.controller.nr_diff_flat_px4_jax import NR_tracker_flat
+from nr_diff_flat_px4_utils.controller import build_nr_profile
+from nr_diff_flat_px4_utils.controller.nr_diff_flat_px4_jax import (
+    NR_tracker_flat,
+    get_tracking_error,
+)
 from nr_diff_flat_px4_utils.controller.nr_diff_flat_px4_numpy import nr_diff_flat_px4_numpy
 
 
@@ -44,6 +48,7 @@ from nr_diff_flat_px4_utils.px4_utils.flight_phases import FlightPhase
 
 
 import time
+import jax
 import math as m
 import numpy as np
 import jax.numpy as jnp
@@ -63,7 +68,8 @@ class OffboardControl(Node):
                 double_speed: bool = True, short: bool = False, spin: bool = False,
                 pyjoules: bool = False, csv_handler: CSVHandler|None = None, logging_enabled: bool = False,
                 flight_period_: bool|None = None,
-                ctrl_type: str = 'jax') -> None:
+                ctrl_type: str = 'jax',
+                nr_profile: str = "baseline") -> None:
 
         super().__init__('offboard_control_node')
         self.get_logger().info(f"{BANNER}Initializing ROS 2 node: '{self.__class__.__name__}'{BANNER}")
@@ -77,6 +83,7 @@ class OffboardControl(Node):
         self.pyjoules_on = pyjoules
         self.logging_enabled = logging_enabled
         self.ctrl_type = ctrl_type
+        self.nr_profile = build_nr_profile(nr_profile)
         flight_period = flight_period_ if flight_period_ is not None else 30.0 if self.sim else 60.0
 
 
@@ -97,6 +104,11 @@ class OffboardControl(Node):
         self.ref_type = trajectory_map[trajectory]
         print(f"\n[Trajectory] Main trajectory type: {self.ref_type.name}")
         print(f"[Controller] Using diff-flat controller variant: {self.ctrl_type.upper()}")
+        print(
+            "[NR Profile] "
+            f"{self.nr_profile.name}: lookahead={self.nr_profile.lookahead_horizon_s:.2f}s, "
+            f"iterations={self.nr_profile.num_iterations}"
+        )
 
 
         # ----------------------- ROS2 Node Stuff --------------------------
@@ -179,8 +191,15 @@ class OffboardControl(Node):
         self.reference_time: float = 0.0
 
         # Diff-flat controller parameters
-        self.T_LOOKAHEAD = 0.8
+        self.T_LOOKAHEAD = self.nr_profile.lookahead_horizon_s
         self.LOOKAHEAD_STATE_DT = 0.05  # Not used by diff-flat but kept for trajectory JIT
+        self.nr_error_integral = np.zeros(4, dtype=np.float64)
+        self.nr_alpha = jnp.array(self.nr_profile.alpha).reshape(4, 1)
+        self.nr_integral_gain = jnp.array(self.nr_profile.integral_gain).reshape(4, 1)
+        self.nr_integral_limit = jnp.array(self.nr_profile.integral_limit).reshape(4, 1)
+        self.nr_num_iterations = jnp.array(self.nr_profile.num_iterations)
+        self.nr_iteration_damping = jnp.array(self.nr_profile.iteration_damping)
+        self.nr_use_thrust_cbf = jnp.array(self.nr_profile.use_thrust_cbf)
 
         self.first_thrust = self.platform.mass * GRAVITY
         self.last_input = np.array([self.first_thrust, 0.0, 0.0, 0.0])
@@ -189,8 +208,7 @@ class OffboardControl(Node):
         # Diff-flat specific state: initialized on first odometry
         self.x_df_initialized = False
         self.x_df = np.zeros((12, 1))
-        self.last_yaw_ref = 0.0
-        self.vnorm = 0.0
+        self.ref_now = np.zeros(4, dtype=np.float64)
         self.cbf_term = np.zeros(4)  # placeholder for logging compatibility
 
         # ROT matrix - initialized to identity, updated by odometry
@@ -221,7 +239,7 @@ class OffboardControl(Node):
                 self.traj_double_logtype = LogType("traj_double", 2)
                 self.traj_short_logtype = LogType("traj_short", 3)
                 self.traj_spin_logtype = LogType("traj_spin", 4)
-                self.lookahead_time = LogType("lookahead_time", 5)
+                self.lookahead_time_logtype = LogType("lookahead_time", 5)
                 self.controller_logtype = LogType("controller", 6)
 
                 self.platform_logtype.append(self.platform_type.value.upper())
@@ -229,14 +247,14 @@ class OffboardControl(Node):
                 self.traj_double_logtype.append("DblSpd" if self.double_speed else "NormSpd")
                 self.traj_short_logtype.append("Short" if self.short else "Not Short")
                 self.traj_spin_logtype.append("Spin" if self.spin else "NoSpin")
-                self.lookahead_time.append(self.T_LOOKAHEAD)
-                self.controller_logtype.append(f"nr_df_{self.ctrl_type}")
+                self.lookahead_time_logtype.append(self.T_LOOKAHEAD)
+                self.controller_logtype.append("nr_df" if self.ctrl_type == "jax" else "nr_df_numpy")
 
             # Time logs
             self.program_time_logtype = LogType("time", 10)
             self.trajectory_time_logtype = LogType("traj_time", 11)
             self.reference_time_logtype = LogType("ref_time", 12)
-            self.comptime_logtype = LogType("comptime", 13)
+            self.comp_time_logtype = LogType("comp_time", 13)
 
 
             # State logs
@@ -257,14 +275,20 @@ class OffboardControl(Node):
             self.q_input_logtype = LogType("q_input", 42)
             self.r_input_logtype = LogType("r_input", 43)
 
-            self.cbf_logtype = VectorLogType("cbf_term", 50, ['thrust_cbf', 'roll_cbf', 'pitch_cbf', 'yaw_cbf'])
+            self.cbf_logtype = VectorLogType("cbf", 50, ['thrust_cbf', 'roll_cbf', 'pitch_cbf', 'yaw_cbf'])
 
 
     def time_and_compare(self, func, *args, **kwargs):
-        """Function to time a function call and return its output along with the time taken."""
-        start_time = time.time()
+        """Time a function call and force async JAX execution to finish."""
+        start_time = time.perf_counter()
         result = func(*args, **kwargs)
-        end_time = time.time()
+
+        result = jax.tree_util.tree_map(
+            lambda x: x.block_until_ready() if hasattr(x, "block_until_ready") else x,
+            result,
+        )
+
+        end_time = time.perf_counter()
         elapsed_time = end_time - start_time
         return *result, elapsed_time
 
@@ -279,34 +303,50 @@ class OffboardControl(Node):
 
 
         print("\n[JIT Compilation] Pre-compiling diff-flat JAX controller function...")
-        u, x_df, total_time1 = self.time_and_compare(
+        u, x_df, cbf_term, total_time1 = self.time_and_compare(
             NR_tracker_flat,
             jnp.array(self._state0),
             jnp.array(self._input0),
             jnp.array(self._x_df0),
             jnp.array(self._ref0),
+            jnp.zeros((4, 1)),
             jnp.array(self.T_LOOKAHEAD),
             jnp.array(self.compute_control_timer_period),
             jnp.array(self.platform.mass),
             jnp.array(self._ROT0),
             jnp.array(self._yaw_dot0),
+            self.nr_alpha,
+            self.nr_integral_gain,
+            self.nr_integral_limit,
+            self.nr_num_iterations,
+            self.nr_iteration_damping,
+            self.nr_use_thrust_cbf,
         )
         print(f"  Result (NO JIT): {u=}")
+        print(f"  CBF term (NO JIT): {cbf_term=}")
         print(f"  Time Taken (NO JIT): {total_time1:.4f}s")
 
-        u, x_df, total_time2 = self.time_and_compare(
+        u, x_df, cbf_term, total_time2 = self.time_and_compare(
             NR_tracker_flat,
             jnp.array(self._state0),
             jnp.array(self._input0),
             jnp.array(self._x_df0),
             jnp.array(self._ref0),
+            jnp.zeros((4, 1)),
             jnp.array(self.T_LOOKAHEAD),
             jnp.array(self.compute_control_timer_period),
             jnp.array(self.platform.mass),
             jnp.array(self._ROT0),
             jnp.array(self._yaw_dot0),
+            self.nr_alpha,
+            self.nr_integral_gain,
+            self.nr_integral_limit,
+            self.nr_num_iterations,
+            self.nr_iteration_damping,
+            self.nr_use_thrust_cbf,
         )
         print(f"  Result (JIT): {u=}")
+        print(f"  CBF term (JIT): {cbf_term=}")
         print(f"  Time Taken (JIT): {total_time2:.4f}s")
 
         print(f"This is a speed up of {(total_time1)/(total_time2):.2f}x")
@@ -516,7 +556,7 @@ class OffboardControl(Node):
         self.program_time_logtype.append(self.program_time)
         self.trajectory_time_logtype.append(self.trajectory_time)
         self.reference_time_logtype.append(self.reference_time)
-        self.comptime_logtype.append(self.compute_time)
+        self.comp_time_logtype.append(self.compute_time)
 
         self.x_logtype.append(self.x)
         self.y_logtype.append(self.y)
@@ -616,13 +656,17 @@ class OffboardControl(Node):
             self.trajectory_T0 = time.time()
             self.trajectory_time = 0.0
             self.trajectory_started = True
+            self.nr_error_integral = np.zeros(4, dtype=np.float64)
 
         self.trajectory_time = time.time() - self.trajectory_T0
         self.reference_time = self.trajectory_time + self.T_LOOKAHEAD
 
-        ref, ref_dot = self.generate_ref_trajectory(self.ref_type)
+        ref, ref_dot = self.generate_ref_trajectory(self.ref_type, t_start=self.reference_time)
+        ref_now, _ = self.generate_ref_trajectory(self.ref_type, t_start=self.trajectory_time)
         self.ref = ref.flatten()  # type: ignore
         self.ref_dot = ref_dot.flatten()  # type: ignore
+        self.ref_now = ref_now.flatten()  # type: ignore
+        self.update_nr_error_integral()
 
 
         t0 = time.time()
@@ -641,6 +685,18 @@ class OffboardControl(Node):
 
         self.normalized_input = [new_throttle, new_roll_rate, new_pitch_rate, new_yaw_rate]
 
+    def update_nr_error_integral(self) -> None:
+        current_error = np.array(
+            get_tracking_error(
+                jnp.array(self.ref_now).reshape(4, 1),
+                jnp.array(self.state_output).reshape(4, 1),
+            ),
+            dtype=np.float64,
+        ).flatten()
+        self.nr_error_integral += current_error * self.compute_control_timer_period
+        limit = np.asarray(self.nr_profile.integral_limit, dtype=np.float64)
+        self.nr_error_integral = np.clip(self.nr_error_integral, -limit, limit)
+
     def controller_handler(self):
         """Wrapper for controller computation."""
         if self.pyjoules_on:
@@ -651,55 +707,63 @@ class OffboardControl(Node):
 
     def controller(self):
         """Compute control input using the selected diff-flat controller variant."""
-        # Compute yaw_dot from reference
-        curr_yaw_ref = float(self.ref[3])
-        yaw_dot = (curr_yaw_ref - self.last_yaw_ref) / self.compute_control_timer_period
+        yaw_dot = float(self.ref_dot[3])
 
         if self.ctrl_type == 'jax':
-            u, new_x_df = NR_tracker_flat(
+            u, new_x_df, cbf_term = NR_tracker_flat(
                 jnp.array(self.nr_state).reshape(9, 1),
                 jnp.array(self.last_input).reshape(4, 1),
                 jnp.array(self.x_df),
                 jnp.array(self.ref).reshape(4, 1),
+                jnp.array(self.nr_error_integral).reshape(4, 1),
                 jnp.array(self.T_LOOKAHEAD),
                 jnp.array(self.compute_control_timer_period),
                 jnp.array(self.platform.mass),
                 jnp.array(self.ROT_matrix),
                 jnp.array(yaw_dot),
+                self.nr_alpha,
+                self.nr_integral_gain,
+                self.nr_integral_limit,
+                self.nr_num_iterations,
+                self.nr_iteration_damping,
+                self.nr_use_thrust_cbf,
             )
             self.new_input = np.array(u).flatten()
             self.x_df = np.array(new_x_df)
-            self.vnorm = 0.0
-            self.cbf_term = np.zeros(4)
+            self.cbf_term = np.array(cbf_term).flatten()
 
         elif self.ctrl_type == 'numpy':
-            u, new_x_df, vnorm = nr_diff_flat_px4_numpy(
+            u, new_x_df, cbf_term = nr_diff_flat_px4_numpy(
                 np.array(self.nr_state).reshape(9, 1),
                 np.array(self.last_input).reshape(4, 1),
                 self.x_df,
                 np.array(self.ref).reshape(4, 1),
+                np.array(self.nr_error_integral),
                 self.T_LOOKAHEAD,
                 self.compute_control_timer_period,
                 self.platform.mass,
                 self.ROT_matrix,
-                self.last_yaw_ref,
+                yaw_dot,
+                np.asarray(self.nr_profile.alpha, dtype=np.float64),
+                np.asarray(self.nr_profile.integral_gain, dtype=np.float64),
+                np.asarray(self.nr_profile.integral_limit, dtype=np.float64),
+                self.nr_profile.num_iterations,
+                self.nr_profile.iteration_damping,
+                self.nr_profile.use_thrust_cbf,
             )
             self.new_input = np.array(u).flatten()
             self.x_df = new_x_df
-            self.vnorm = vnorm
-            self.cbf_term = np.array([vnorm, 0.0, 0.0, 0.0])
-
-        self.last_yaw_ref = curr_yaw_ref
+            self.cbf_term = np.array(cbf_term).flatten()
 
 
 
-    def generate_ref_trajectory(self, traj_type: TrajectoryType, **ctx_overrides):
+    def generate_ref_trajectory(self, traj_type: TrajectoryType, t_start: float | None = None, **ctx_overrides):
         """Generate reference trajectory."""
         ctx_dict = {
             'sim': self.sim,
             'hover_mode': ctx_overrides.get('hover_mode', self.hover_mode),
             'spin': ctx_overrides.get('spin', self.spin),
-            'double_speed': ctx_overrides.get('double_speed', True),
+            'double_speed': ctx_overrides.get('double_speed', self.double_speed),
             'short': ctx_overrides.get('short', self.short)
         }
         ctx = TrajContext(**ctx_dict)
@@ -707,7 +771,7 @@ class OffboardControl(Node):
 
         return generate_reference_trajectory(
             traj_func=traj_func,
-            t_start=self.reference_time,
+            t_start=self.reference_time if t_start is None else t_start,
             horizon=0.0,
             num_steps=1,
             ctx=ctx

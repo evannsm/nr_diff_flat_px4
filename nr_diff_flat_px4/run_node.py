@@ -29,6 +29,7 @@ def create_parser():
         platform: 'sim' or 'hw'
         trajectory: Trajectory name (e.g., 'circle_horz', 'fig8_vert', etc.)
         ctrl_type: 'jax' or 'numpy' controller variant
+        nr_profile: 'baseline' or 'workshop' diff-flat profile
         log: Enable data logging (auto-generates filename if --log-file not provided)
         log_file: Custom log file name (optional, overrides auto-generated name)
         pyjoules: Enable PyJoules energy monitoring
@@ -91,6 +92,12 @@ def create_parser():
         default='jax',
         help="Controller variant: 'jax' (JIT-compiled, default) or 'numpy' (with thrust CBF)"
     )
+    parser.add_argument(
+        "--nr-profile",
+        choices=["baseline", "workshop"],
+        default="baseline",
+        help="Diff-flat Newton-Raphson controller profile to run.",
+    )
 
     # Logging flags
     parser.add_argument(
@@ -152,7 +159,7 @@ def ensure_csv(filename: str) -> str:
 def generate_log_filename(args) -> str:
     """Generate auto log filename based on configuration.
 
-    Format: {platform}_nr_df_{ctrl_type}_{trajectory}_{speed}[_{short}][_{spin}].csv
+    Format: {platform}_nr_df_{ctrl_type}_{trajectory}_{speed}[_{short}][_{spin}][_{profile}].csv
 
     Examples:
         sim_nr_df_jax_helix_2x_spin.csv
@@ -183,6 +190,9 @@ def generate_log_filename(args) -> str:
     # Spin
     if args.spin:
         parts.append("spin")
+
+    if args.nr_profile != "baseline":
+        parts.append(args.nr_profile)
 
     return "_".join(parts)
 
@@ -224,6 +234,7 @@ def main():
     spin = args.spin
     flight_period = args.flight_period
     ctrl_type = args.ctrl_type
+    nr_profile = args.nr_profile
     base_path = _logger_base_path(__file__, "nr_diff_flat_px4")
 
     # Determine log filename
@@ -244,6 +255,7 @@ def main():
     print("=" * 60)
     print(f"Platform:      {platform.value.upper()}")
     print(f"Controller:    DIFF-FLAT ({ctrl_type.upper()})")
+    print(f"NR Profile:    {nr_profile}")
     print(f"Trajectory:    {trajectory.value.upper()}")
     print(f"Hover Mode:    {hover_mode if hover_mode is not None else 'N/A'}")
     print(f"Speed:         {'Double (2x)' if double_speed else 'Regular (1x)'}")
@@ -269,7 +281,8 @@ def main():
         csv_handler=CSVHandler(log_file, base_path) if pyjoules and log_file else None,
         logging_enabled=logging_enabled,
         flight_period_=flight_period,
-        ctrl_type=ctrl_type
+        ctrl_type=ctrl_type,
+        nr_profile=nr_profile,
     )
 
     logger = None
