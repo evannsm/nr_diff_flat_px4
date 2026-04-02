@@ -194,6 +194,7 @@ class OffboardControl(Node):
         # Diff-flat controller parameters
         self.T_LOOKAHEAD = self.nr_profile.lookahead_horizon_s
         self.LOOKAHEAD_STATE_DT = 0.05  # Not used by diff-flat but kept for trajectory JIT
+        self.compute_time = 0.0
         self.nr_error_integral = np.zeros(4, dtype=np.float64)
         self.nr_alpha = jnp.array(self.nr_profile.alpha).reshape(4, 1)
         self.nr_integral_gain = jnp.array(self.nr_profile.integral_gain).reshape(4, 1)
@@ -212,6 +213,8 @@ class OffboardControl(Node):
         self.x_df_ff = None
         self.x_df_dev = None
         self.u_df_ff = None
+        self.ref = np.zeros(4, dtype=np.float64)
+        self.ref_dot = np.zeros(4, dtype=np.float64)
         self.ref_now = np.zeros(4, dtype=np.float64)
         self.cbf_term = np.zeros(4)  # placeholder for logging compatibility
 
@@ -459,7 +462,6 @@ class OffboardControl(Node):
         self.ROT = orientation
         self.ROT_matrix = orientation.as_matrix()
 
-        # Initialize flat state on first odometry
         if not self.x_df_initialized:
             self.x_df = np.array([[self.x, self.y, self.z, self.yaw,
                                    self.vx, self.vy, self.vz, 0.,
