@@ -691,7 +691,8 @@ class OffboardControl(Node):
         self.update_nr_error_integral()
 
         if self.feedforward and self._ff_jit is not None:
-            x_df_ff, u_df_ff = self._ff_jit(self.trajectory_time)
+            ff_time = self._diff_flat_feedforward_time()
+            x_df_ff, u_df_ff = self._ff_jit(ff_time)
             self.x_df_ff = np.array(x_df_ff, dtype=np.float64)
             self.u_df_ff = np.array(u_df_ff, dtype=np.float64)
         else:
@@ -814,6 +815,20 @@ class OffboardControl(Node):
             'short': ctx_overrides.get('short', self.short)
         }
         return TrajContext(**ctx_dict)
+
+    def _diff_flat_feedforward_time(self) -> float:
+        """Choose the nominal flat-state time used for feedforward operating points.
+
+        Regular trajectories benefit from aligning the nominal sigma/sigma_dot/sigma_ddot
+        with the same lookahead target used by the NR output prediction. The contraction
+        family is different: the controller carries an internal flat-state deviation
+        `x_df_dev` around the nominal operating point, and advancing that nominal to the
+        future over-seeds the contraction-specific operating point badly enough to trigger
+        roll-attitude failures in SITL. Keep those on current trajectory time.
+        """
+        if "contraction" in self.ref_type.value:
+            return self.trajectory_time
+        return self.reference_time
 
     def build_diff_flat_feedforward(self, traj_type: TrajectoryType, **ctx_overrides):
         """Return a JIT-compiled flat-state feedforward operating point."""
