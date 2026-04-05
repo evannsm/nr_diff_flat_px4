@@ -94,9 +94,9 @@ So this slice is integration-complete and analysis-visible. On this first checke
 
 ## Dependencies
 
-- [quad_trajectories](https://github.com/evannsm/quad_trajectories) — trajectory definitions
-- [quad_platforms](https://github.com/evannsm/quad_platforms) — platform abstraction
-- [ROS2Logger](https://github.com/evannsm/ROS2Logger) — experiment logging
+- [quad_trajectories](https://github.com/evannsmc/quad_trajectories) — trajectory definitions
+- [quad_platforms](https://github.com/evannsmc/quad_platforms) — platform abstraction
+- [ROS2Logger](https://github.com/evannsmc/ROS2Logger) — experiment logging
 - [px4_msgs](https://github.com/PX4/px4_msgs) — PX4 ROS 2 message definitions
 - JAX / jaxlib
 
@@ -121,7 +121,7 @@ nr_diff_flat_px4/
 
 ```bash
 # Inside a ROS 2 workspace src/ directory
-git clone git@github.com:evannsm/nr_diff_flat_px4.git
+git clone git@github.com:evannsmc/nr_diff_flat_px4.git
 cd .. && colcon build --symlink-install
 ```
 

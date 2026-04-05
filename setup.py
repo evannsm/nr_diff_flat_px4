@@ -17,7 +17,6 @@ setup(
     maintainer_email='egmc@todo.todo',
     description='Differential-flatness based Newton-Raphson controller for quadrotor trajectory tracking',
     license='MIT',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'run_node = nr_diff_flat_px4.run_node:main',
